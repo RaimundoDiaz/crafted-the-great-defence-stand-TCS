@@ -1,0 +1,176 @@
+import("ScarUtil.scar")
+
+-----------------------------------------------------------------
+-- Town Centers por civ (confirmados: eng, jpn, fre)
+-----------------------------------------------------------------
+TC_BLUEPRINTS = {
+    ["english"]    = "building_town_center_eng",
+    ["french"]     = "building_town_center_fre",
+    ["hre"]        = "building_town_center_hre",
+    ["rus"]        = "building_town_center_rus",
+    ["mongol"]     = "building_town_center_mon",
+    ["chinese"]    = "building_town_center_chi",
+    ["abbasid"]    = "building_town_center_abb",
+    ["delhi"]      = "building_town_center_dei",
+    ["ottoman"]    = "building_town_center_ott",
+    ["malian"]     = "building_town_center_mal",
+    ["byzantine"]  = "building_town_center_byz",
+    ["japanese"]   = "building_town_center_jpn",
+    ["ayyubid"]    = "building_town_center_abb",
+    ["jeanne"]     = "building_town_center_fre",
+    ["dragon"]     = "building_town_center_hre",
+    ["zhuxi"]      = "building_town_center_chi",
+    ["templar"]    = "building_town_center_fre",
+    ["lancaster"]  = "building_town_center_eng",
+    ["goldenhorde"]= "building_town_center_mon",
+    ["macedonian"] = "building_town_center_byz",
+    ["sengoku"]    = "building_town_center_jpn",
+    ["tughlaq"]    = "building_town_center_dei",
+    ["jin"]        = "building_town_center_chi",
+}
+
+-----------------------------------------------------------------
+-- Keeps por civ (confirmado: eng = building_defense_keep_eng)
+-----------------------------------------------------------------
+KEEP_BLUEPRINTS = {
+    ["english"]    = "building_defense_keep_eng",
+    ["french"]     = "building_defense_keep_fre",
+    ["hre"]        = "building_defense_keep_hre",
+    ["rus"]        = "building_defense_keep_rus",
+    ["mongol"]     = "building_defense_keep_mon",
+    ["chinese"]    = "building_defense_keep_chi",
+    ["abbasid"]    = "building_defense_keep_abb",
+    ["delhi"]      = "building_defense_keep_dei",
+    ["ottoman"]    = "building_defense_keep_ott",
+    ["malian"]     = "building_defense_keep_mal",
+    ["byzantine"]  = "building_defense_keep_byz",
+    ["japanese"]   = "building_defense_keep_jpn",
+    ["ayyubid"]    = "building_defense_keep_abb",
+    ["jeanne"]     = "building_defense_keep_fre",
+    ["dragon"]     = "building_defense_keep_hre",
+    ["zhuxi"]      = "building_defense_keep_chi",
+    ["templar"]    = "building_defense_keep_fre",
+    ["lancaster"]  = "building_defense_keep_eng",
+    ["goldenhorde"]= "building_defense_keep_mon",
+    ["macedonian"] = "building_defense_keep_byz",
+    ["sengoku"]    = "building_defense_keep_jpn",
+    ["tughlaq"]    = "building_defense_keep_dei",
+    ["jin"]        = "building_defense_keep_chi",
+}
+
+TC_DEFAULT_BLUEPRINT   = "building_town_center_eng"
+KEEP_DEFAULT_BLUEPRINT = "building_defense_keep_eng"
+
+-----------------------------------------------------------------
+-- Busca un blueprint en una tabla dada, con fallback configurable.
+-----------------------------------------------------------------
+function GetBlueprintForRace(race, table_bp, default_bp)
+    -- match exacto
+    if table_bp[race] then
+        return table_bp[race]
+    end
+    -- match por prefijo (ej. "byzantine_ha_mac" -> "byzantine")
+    for prefix, bp in pairs(table_bp) do
+        if string.find(race, prefix, 1, true) == 1 then
+            return bp
+        end
+    end
+    -- match por substring
+    for key, bp in pairs(table_bp) do
+        if string.find(race, key, 1, true) ~= nil then
+            return bp
+        end
+    end
+    -- fallback
+    print("AVISO: raza no reconocida '" .. tostring(race) .. "', usando blueprint por defecto")
+    return default_bp
+end
+
+function OnGameSetup()
+end
+
+function OnInit()
+    print("=== TC + Keep swap script loaded ===")
+    Rule_AddOneShot(SwapBuildingsToPlayerCiv, 3.0)
+end
+
+Scar_AddInit(OnInit)
+
+-----------------------------------------------------------------
+-- Funcion generica: reemplaza edificios por el de la civ del jugador.
+-- type_filter:   tipo para EGroup_Filter (ej. "town_center"). nil = no filtrar por tipo.
+-- bp_table:      tabla de blueprints por civ.
+-- default_bp:    blueprint por defecto si no se reconoce la civ.
+-- label:         etiqueta para logs y nombres de grupo.
+-- exclude_substr: si el blueprint contiene este texto, NO se reemplaza
+--                 (ej. "capital" para no tocar el TC principal). nil = nada.
+-- match_substr:  si se da, solo se reemplazan entidades cuyo blueprint
+--                contenga este texto (ej. "building_defense_keep"). nil = todas.
+-----------------------------------------------------------------
+function SwapBuildingsByType(player, i, type_filter, bp_table, default_bp, label, exclude_substr, match_substr)
+
+    local race = Player_GetRaceName(player.id)
+    local bp_name = GetBlueprintForRace(race, bp_table, default_bp)
+
+    local eg = EGroup_CreateIfNotFound("eg_swap_" .. label .. "_" .. i)
+    EGroup_Clear(eg)
+    Player_GetEntitiesEGroup(player.id, eg)
+
+    -- Filtro por tipo solo si se especifica
+    if type_filter ~= nil then
+        EGroup_Filter(eg, type_filter, FILTER_KEEP)
+    end
+
+    local positions = {}
+    local entities_to_destroy = {}
+    EGroup_ForEach(eg, function(egroupid, itemindex, entity)
+        local ent_bp_name = BP_GetName(Entity_GetBlueprint(entity))
+
+        -- Si filtramos por nombre de blueprint, descartar lo que NO coincida
+        local matches = true
+        if match_substr ~= nil then
+            matches = (string.find(ent_bp_name, match_substr, 1, true) ~= nil)
+        end
+
+        if matches then
+            -- Excluir lo que coincida con exclude_substr (ej. "capital")
+            if exclude_substr ~= nil and string.find(ent_bp_name, exclude_substr, 1, true) ~= nil then
+                print("    (ignorando excluido: " .. tostring(ent_bp_name) .. ")")
+            else
+                table.insert(positions, Entity_GetPosition(entity))
+                table.insert(entities_to_destroy, entity)
+            end
+        end
+        return false
+    end)
+
+    print("  " .. label .. " a reemplazar para " .. tostring(race) .. ": " .. tostring(#positions))
+
+    -- Borrar solo los que vamos a reemplazar
+    for _, ent in pairs(entities_to_destroy) do
+        Entity_Destroy(ent)
+    end
+
+    -- Crear los nuevos en cada posicion, ya construidos
+    for _, pos in pairs(positions) do
+        local ebp = BP_GetEntityBlueprint(bp_name)
+        local ent = Entity_Create(ebp, player.id, pos, false)
+        Entity_Spawn(ent)
+        Entity_ForceConstruct(ent)
+    end
+end
+
+-----------------------------------------------------------------
+-- Recorre los jugadores reales y reemplaza TC + Keeps por su civ.
+-----------------------------------------------------------------
+function SwapBuildingsToPlayerCiv()
+    for i, player in pairs(PLAYERS) do
+        print("Procesando jugador con raza: " .. tostring(Player_GetRaceName(player.id)))
+
+        -- Town Centers: filtro por tipo "town_center", excluir el capital
+        SwapBuildingsByType(player, i, "town_center", TC_BLUEPRINTS, TC_DEFAULT_BLUEPRINT, "TC", "capital", nil)
+
+        -- Keeps: sin filtro de tipo, filtramos por nombre de blueprint
+        SwapBuildingsByType(player, i, nil, KEEP_BLUEPRINTS, KEEP_DEFAULT_BLUEPRINT, "KEEP", nil, "building_defense_keep")
+    end
+end
